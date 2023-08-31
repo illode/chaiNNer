@@ -5,6 +5,7 @@ import platform
 from typing import Callable, Iterable, Union
 
 import cv2
+import ffmpeg
 import numpy as np
 from PIL import Image
 from sanic.log import logger
@@ -115,6 +116,51 @@ def _read_dds(path: str) -> np.ndarray | None:
         os.remove(png)
 
 
+def _read_ffmpeg(path: str) -> np.ndarray:
+    probe = ffmpeg.probe(path)
+    width = probe.get("streams")[0].get("width")
+    height = probe.get("streams")[0].get("height")
+    pix_fmt = probe.get("streams")[0].get("pix_fmt")
+
+    if pix_fmt == "rgba":
+        channels = 4
+        colorspace = cv2.COLOR_RGBA2BGRA
+    elif pix_fmt == "rgb24":
+        channels = 3
+        colorspace = cv2.COLOR_RGB2BGR
+    elif pix_fmt == "gray":
+        channels = 1
+        colorspace = None
+    else:
+        _, _, ext = split_file_path(path)
+        raise RuntimeError(
+            f"Unsupported number of channels. Loading .{ext} images is only supported for "
+            f"grayscale, RGB, and RGBA images."
+        )
+
+    img = None
+    try:
+        ffmpeg_reader = (
+            ffmpeg.input(path)
+            .output("pipe:", format="rawvideo", pix_fmt=pix_fmt)
+            .run_async(pipe_stdout=True)
+        )
+        logger.debug(ffmpeg_reader)
+
+        in_bytes = ffmpeg_reader.stdout.read(width * height * channels)
+
+        if not in_bytes:
+            return
+
+        img = np.frombuffer(in_bytes, np.uint8).reshape([height, width, channels])
+        if colorspace is not None:
+            img = cv2.cvtColor(img, colorspace)
+
+    except Exception as e:
+        logger.error(f"Error loading jxl image: {e}")
+
+    return img
+
 def _for_ext(ext: str | Iterable[str], decoder: _Decoder) -> _Decoder:
     ext_set: set[str] = set()
     if isinstance(ext, str):
@@ -130,6 +176,7 @@ _decoders: list[tuple[str, _Decoder]] = [
     ("cv", _read_cv),
     ("texconv-dds", _read_dds),
     ("pil", _read_pil),
+    ("ffmpeg", _read_ffmpeg),
 ]
 
 valid_formats = get_available_image_formats()

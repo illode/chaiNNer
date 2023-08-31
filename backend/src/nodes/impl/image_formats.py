@@ -71,6 +71,9 @@ def get_pil_formats():
     ]
 
 
+def get_ffmpeg_formats():
+    return [".jxl"]
+
 def get_available_image_formats():
-    all_formats = [*get_opencv_formats(), *get_pil_formats()]
+    all_formats = [*get_opencv_formats(), *get_pil_formats(), *get_ffmpeg_formats()]
     return sorted(set(all_formats))

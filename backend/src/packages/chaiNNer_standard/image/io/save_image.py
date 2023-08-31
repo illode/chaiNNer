@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Literal
 
 import cv2
+import ffmpeg
 import numpy as np
 from PIL import Image
 from sanic.log import logger
@@ -46,6 +47,7 @@ class ImageFormat(Enum):
     WEBP = "webp"
     TGA = "tga"
     DDS = "dds"
+    JXL = "jxl"
 
     @property
     def extension(self) -> str:
@@ -61,6 +63,7 @@ IMAGE_FORMAT_LABELS: dict[ImageFormat, str] = {
     ImageFormat.WEBP: "WEBP",
     ImageFormat.TGA: "TGA",
     ImageFormat.DDS: "DDS",
+    ImageFormat.JXL: "JXL",
 }
 
 
@@ -138,7 +141,7 @@ class TiffColorDepth(Enum):
             BoolInput("Lossless", default=False).with_id(14),
         ),
         if_group(
-            Condition.enum(4, ImageFormat.JPG)
+            Condition.enum(4, ImageFormat.JPG) | Condition.enum(4, ImageFormat.JXL)
             | (Condition.enum(4, ImageFormat.WEBP) & Condition.enum(14, 0))
         )(
             SliderInput(
@@ -261,6 +264,51 @@ def save_image_node(
             separate_alpha=dds_separate_alpha,
         )
         return
+
+    if image_format == ImageFormat.JXL:
+        # From my limited research, this needs 8bit as well
+        img = to_uint8(img, normalized=True)
+        height, width, channels = get_h_w_c(img)
+
+        # No need to convert the image, ffmpeg just needs the right pix_fmt and it'll work
+        # Though it could be done by cv2 to keep consistent with other formats.
+        if channels == 1:
+            pix_fmt = "gray"
+        elif channels == 3:
+            # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pix_fmt = "bgr24"
+        elif channels == 4:
+            # img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
+            pix_fmt = "bgra"
+        else:
+            raise RuntimeError(
+                f"Unsupported number of channels. Saving .{image_format.extension} images is only supported for "
+                f"grayscale, RGB, and RGBA images."
+            )
+
+        try:
+            ffmpeg_writer = (
+                ffmpeg.input(
+                    "pipe:",
+                    format="rawvideo",
+                    pix_fmt=pix_fmt,
+                    s=f"{width}x{height}",
+                )
+                    .output(
+                    full_path,
+                    codec="libjxl",
+                    # This has to be q not quality.
+                    q=quality,
+                )
+                    .overwrite_output()
+                    .run_async(pipe_stdin=True)
+            )
+            logger.debug(ffmpeg_writer)
+            ffmpeg_writer.stdin.write(img.tobytes())
+        except Exception as e:
+            logger.warning(f"Failed to open ffmpeg for saving as jxl: {e}")
+        return
+
 
     # Some formats are handled by PIL
     if image_format in (ImageFormat.GIF, ImageFormat.TGA):
