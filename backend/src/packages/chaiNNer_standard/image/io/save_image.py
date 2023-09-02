@@ -66,7 +66,6 @@ IMAGE_FORMAT_LABELS: dict[ImageFormat, str] = {
     ImageFormat.JXL: "JXL",
 }
 
-
 SUPPORTED_FORMATS = {f for f, _ in SUPPORTED_DDS_FORMATS}
 SUPPORTED_BC7_FORMATS = list(SUPPORTED_FORMATS.intersection(BC7_FORMATS))
 SUPPORTED_BC123_FORMATS = list(SUPPORTED_FORMATS.intersection(BC123_FORMATS))
@@ -141,7 +140,8 @@ class TiffColorDepth(Enum):
             BoolInput("Lossless", default=False).with_id(14),
         ),
         if_group(
-            Condition.enum(4, ImageFormat.JPG) | Condition.enum(4, ImageFormat.JXL)
+            Condition.enum(4, ImageFormat.JPG)
+            | Condition.enum(4, ImageFormat.JXL)
             | (Condition.enum(4, ImageFormat.WEBP) & Condition.enum(14, 0))
         )(
             SliderInput(
@@ -270,8 +270,8 @@ def save_image_node(
         img = to_uint8(img, normalized=True)
         height, width, channels = get_h_w_c(img)
 
-        # No need to convert the image, ffmpeg just needs the right pix_fmt and it'll work
-        # Though it could be done by cv2 to keep consistent with other formats.
+        # No need to convert the image, ffmpeg just needs the right pix_fmt and it'll work,
+        # though it could be done by cv2 anyways to keep consistent with other formats.
         if channels == 1:
             pix_fmt = "gray"
         elif channels == 3:
@@ -294,21 +294,23 @@ def save_image_node(
                     pix_fmt=pix_fmt,
                     s=f"{width}x{height}",
                 )
-                    .output(
+                .output(
                     full_path,
                     codec="libjxl",
                     # This has to be q not quality.
                     q=quality,
                 )
-                    .overwrite_output()
-                    .run_async(pipe_stdin=True)
+                .overwrite_output()
+                .run_async(pipe_stdin=True)
             )
             logger.debug(ffmpeg_writer)
             ffmpeg_writer.stdin.write(img.tobytes())
         except Exception as e:
-            logger.warning(f"Failed to open ffmpeg for saving as jxl: {e}")
+            # logger.error(f"Failed to save .{image_format.extension}: {e}")
+            raise RuntimeError(
+                f"Failed to save as .{image_format.extension}. Is libjxl installed?"
+            )
         return
-
 
     # Some formats are handled by PIL
     if image_format in (ImageFormat.GIF, ImageFormat.TGA):

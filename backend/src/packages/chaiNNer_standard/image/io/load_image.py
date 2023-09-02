@@ -117,7 +117,16 @@ def _read_dds(path: str) -> np.ndarray | None:
 
 
 def _read_ffmpeg(path: str) -> np.ndarray:
-    probe = ffmpeg.probe(path)
+    try:
+        probe = ffmpeg.probe(path)
+    except ffmpeg.Error as e:
+        if "error while loading shared libraries: libjxl" in e.stderr.decode():
+            raise RuntimeError("libjxl must be installed to read JPEG XL images")
+        else:
+            logger.error(f"Error loading jxl image: {e}")
+            logger.error(e.stderr)
+            _, _, ext = split_file_path(path)
+            raise RuntimeError(f"Error reading {ext} file.")
     width = probe.get("streams")[0].get("width")
     height = probe.get("streams")[0].get("height")
     pix_fmt = probe.get("streams")[0].get("pix_fmt")
@@ -134,7 +143,7 @@ def _read_ffmpeg(path: str) -> np.ndarray:
     else:
         _, _, ext = split_file_path(path)
         raise RuntimeError(
-            f"Unsupported number of channels. Loading .{ext} images is only supported for "
+            f"Unsupported number of channels. Loading {ext} images is only supported for "
             f"grayscale, RGB, and RGBA images."
         )
 
@@ -160,6 +169,7 @@ def _read_ffmpeg(path: str) -> np.ndarray:
         logger.error(f"Error loading jxl image: {e}")
 
     return img
+
 
 def _for_ext(ext: str | Iterable[str], decoder: _Decoder) -> _Decoder:
     ext_set: set[str] = set()
