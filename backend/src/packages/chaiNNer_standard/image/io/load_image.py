@@ -123,7 +123,7 @@ def _read_ffmpeg(path: str) -> np.ndarray:
         if "error while loading shared libraries: libjxl" in e.stderr.decode():
             raise RuntimeError("libjxl must be installed to read JPEG XL images")
         else:
-            logger.error(f"Error loading jxl image: {e}")
+            logger.error(f"Error loading image: {e}")
             logger.error(e.stderr)
             _, _, ext = split_file_path(path)
             raise RuntimeError(f"Error reading {ext} file.")
